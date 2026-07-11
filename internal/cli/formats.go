@@ -17,3 +17,15 @@ func validateSnapshotFormat(value string) (string, error) {
 		return "", fmt.Errorf("unsupported snapshot format %q; use table, text, json, or csv", value)
 	}
 }
+
+func validateStreamFormat(value string) (string, error) {
+	format := output.NormaliseFormat(value)
+	switch format {
+	case output.FormatText, output.FormatJSONL, output.FormatCSV:
+		return format, nil
+	case output.FormatTable, output.FormatJSON:
+		return "", fmt.Errorf("format %q is snapshot-only; streams support text, jsonl, and csv", value)
+	default:
+		return "", fmt.Errorf("unsupported stream format %q; use text, jsonl, or csv", value)
+	}
+}

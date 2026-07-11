@@ -12,15 +12,17 @@ import (
 )
 
 type stationFactory func(config.ClientConfig) (ocppclient.Station, error)
+type simulatorFactory func(config.ClientConfig, ocppclient.SimulatorOptions) (ocppclient.Simulator, error)
 
 type App struct {
-	out        io.Writer
-	err        io.Writer
-	newStation stationFactory
+	out          io.Writer
+	err          io.Writer
+	newStation   stationFactory
+	newSimulator simulatorFactory
 }
 
 func NewApp(out, err io.Writer) *App {
-	return &App{out: out, err: err, newStation: ocppclient.New}
+	return &App{out: out, err: err, newStation: ocppclient.New, newSimulator: ocppclient.NewSimulator}
 }
 
 func Main() {
@@ -45,6 +47,8 @@ func (a *App) Run(args []string) int {
 	case "version", "--version", "-v":
 		fmt.Fprintln(a.out, "ocpp-cli development")
 		err = nil
+	case "run":
+		err = a.runSimulator(args[1:])
 	case "init-config":
 		err = a.initConfig(args[1:])
 	case "validate-config":
@@ -97,10 +101,11 @@ func (a *App) Run(args []string) int {
 }
 
 func (a *App) printUsage() {
-	fmt.Fprintln(a.out, `ocpp-cli is an OCPP 1.6-J charge point command-line client.
+	fmt.Fprintln(a.out, `ocpp-cli is an OCPP 1.6-J charge point command-line client and simulator.
 
 Usage:
   ocpp-cli [global flags] <command> [flags]
+  ocpp-cli run --connectors 2 --meter-interval 30s --format jsonl
   ocpp-cli test-connection --profile local
   ocpp-cli boot-notification --profile local
   ocpp-cli heartbeat --profile local
@@ -122,6 +127,7 @@ Usage:
 
 Commands:
   version                    Print version information
+  run                        Run a persistent in-memory charge point simulator
   init-config                Write a starter config.yaml
   validate-config            Validate local configuration without connecting
   test-connection            Open and close an OCPP WebSocket connection
@@ -154,10 +160,10 @@ Global flags:
   --tls-server-name      TLS server-name override
   --insecure-skip-verify Skip TLS verification for diagnostics only
   --timeout              Connection and request timeout
-  --format               table, text, json, or csv
+  --format               snapshot: table/text/json/csv; stream: text/jsonl/csv
   --verbose              Print high-level connection decisions
   --debug                Enable lower-level protocol logging
 
 CLI flags override values loaded from --config and --profile.
-All current protocol commands are snapshots; jsonl is reserved for future stream commands.`)
+Snapshot commands support table, text, json, and csv. The run stream supports text, jsonl, and csv.`)
 }

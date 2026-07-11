@@ -11,8 +11,13 @@ import (
 
 	"github.com/DishanRajapaksha/ocpp-cli/internal/config"
 	ocpp16 "github.com/lorenzodonini/ocpp-go/ocpp1.6"
+	"github.com/lorenzodonini/ocpp-go/ocpp1.6/certificates"
 	"github.com/lorenzodonini/ocpp-go/ocpp1.6/core"
+	"github.com/lorenzodonini/ocpp-go/ocpp1.6/extendedtriggermessage"
 	"github.com/lorenzodonini/ocpp-go/ocpp1.6/firmware"
+	"github.com/lorenzodonini/ocpp-go/ocpp1.6/logging"
+	"github.com/lorenzodonini/ocpp-go/ocpp1.6/securefirmware"
+	"github.com/lorenzodonini/ocpp-go/ocpp1.6/security"
 	"github.com/lorenzodonini/ocpp-go/ocpp1.6/types"
 )
 
@@ -34,17 +39,23 @@ type simulator struct {
 	eventMu      sync.RWMutex
 	eventsClosed bool
 
-	mu                   sync.Mutex
-	ctx                  context.Context
-	connectors           map[int]*connectorState
-	configuration        map[string]core.ConfigurationKey
-	reservations         map[int]*reservationState
-	localAuthList        map[string]*types.IdTagInfo
-	localAuthListVersion int
-	chargingProfiles     map[int]storedChargingProfile
-	diagnosticsStatus    firmware.DiagnosticsStatus
-	firmwareStatus       firmware.FirmwareStatus
-	lastBoot             BootResult
+	mu                      sync.Mutex
+	ctx                     context.Context
+	connectors              map[int]*connectorState
+	configuration           map[string]core.ConfigurationKey
+	reservations            map[int]*reservationState
+	localAuthList           map[string]*types.IdTagInfo
+	localAuthListVersion    int
+	chargingProfiles        map[int]storedChargingProfile
+	diagnosticsStatus       firmware.DiagnosticsStatus
+	firmwareStatus          firmware.FirmwareStatus
+	installedCertificates   map[string]installedCertificate
+	stationCertificateChain string
+	activeLogRequestID      int
+	logStatus               logging.UploadLogStatus
+	signedFirmwareRequestID int
+	signedFirmwareStatus    securefirmware.FirmwareStatus
+	lastBoot                BootResult
 }
 
 // NewSimulator creates a persistent OCPP 1.6 charge-point simulator.
@@ -69,17 +80,20 @@ func NewSimulator(cfg config.ClientConfig, opts SimulatorOptions) (Simulator, er
 	}
 	cp := ocpp16.NewChargePoint(cfg.ChargePointID, nil, wsClient)
 	s := &simulator{
-		cfg:                cfg,
-		opts:               opts,
-		cp:                 cp,
-		events:             make(chan SimulatorEvent, 256),
-		connectors:         make(map[int]*connectorState, opts.Connectors),
-		configuration:      make(map[string]core.ConfigurationKey),
-		reservations:       make(map[int]*reservationState),
-		localAuthList:      make(map[string]*types.IdTagInfo),
-		chargingProfiles:   make(map[int]storedChargingProfile),
-		diagnosticsStatus:  firmware.DiagnosticsStatusIdle,
-		firmwareStatus:     firmware.FirmwareStatusIdle,
+		cfg:                   cfg,
+		opts:                  opts,
+		cp:                    cp,
+		events:                make(chan SimulatorEvent, 256),
+		connectors:            make(map[int]*connectorState, opts.Connectors),
+		configuration:         make(map[string]core.ConfigurationKey),
+		reservations:          make(map[int]*reservationState),
+		localAuthList:         make(map[string]*types.IdTagInfo),
+		chargingProfiles:      make(map[int]storedChargingProfile),
+		diagnosticsStatus:     firmware.DiagnosticsStatusIdle,
+		firmwareStatus:        firmware.FirmwareStatusIdle,
+		installedCertificates: make(map[string]installedCertificate),
+		logStatus:             logging.UploadLogStatusIdle,
+		signedFirmwareStatus:  securefirmware.FirmwareStatusIdle,
 	}
 	for id := 1; id <= opts.Connectors; id++ {
 		s.connectors[id] = &connectorState{
@@ -90,7 +104,7 @@ func NewSimulator(cfg config.ClientConfig, opts SimulatorOptions) (Simulator, er
 	}
 
 	s.addConfiguration("NumberOfConnectors", strconv.Itoa(opts.Connectors), true)
-	s.addConfiguration("SupportedFeatureProfiles", "Core,FirmwareManagement,LocalAuthListManagement,Reservation,RemoteTrigger,SmartCharging", true)
+	s.addConfiguration("SupportedFeatureProfiles", "Core,FirmwareManagement,LocalAuthListManagement,Reservation,RemoteTrigger,SmartCharging,Security,Certificates,Log,ExtendedTriggerMessage,SecureFirmwareUpdate", true)
 	s.addConfiguration("AuthorizeRemoteTxRequests", "false", false)
 	s.addConfiguration("HeartbeatInterval", strconv.Itoa(int(opts.HeartbeatInterval.Seconds())), false)
 	s.addConfiguration("MeterValueSampleInterval", strconv.Itoa(int(opts.MeterInterval.Seconds())), false)
@@ -101,6 +115,7 @@ func NewSimulator(cfg config.ClientConfig, opts SimulatorOptions) (Simulator, er
 	s.addConfiguration("ChargingScheduleAllowedChargingRateUnit", "Current,Power", true)
 	s.addConfiguration("ChargingScheduleMaxPeriods", "24", true)
 	s.addConfiguration("MaxChargingProfilesInstalled", "100", true)
+	s.addConfiguration("CertificateSignedMaxChainSize", "10000", true)
 
 	cp.SetCoreHandler(s)
 	cp.SetFirmwareManagementHandler(s)
@@ -108,6 +123,11 @@ func NewSimulator(cfg config.ClientConfig, opts SimulatorOptions) (Simulator, er
 	cp.SetReservationHandler(s)
 	cp.SetRemoteTriggerHandler(s)
 	cp.SetSmartChargingHandler(s)
+	cp.SetSecurityHandler(s)
+	cp.SetCertificateHandler(s)
+	cp.SetLogHandler(s)
+	cp.SetExtendedTriggerMessageHandler(s)
+	cp.SetSecureFirmwareHandler(s)
 	return s, nil
 }
 
@@ -335,3 +355,11 @@ func (s *simulator) addConfiguration(key, value string, readonly bool) {
 	copyValue := value
 	s.configuration[key] = core.ConfigurationKey{Key: key, Readonly: readonly, Value: &copyValue}
 }
+
+var (
+	_ security.ChargePointHandler               = (*simulator)(nil)
+	_ certificates.ChargePointHandler           = (*simulator)(nil)
+	_ logging.ChargePointHandler                = (*simulator)(nil)
+	_ extendedtriggermessage.ChargePointHandler = (*simulator)(nil)
+	_ securefirmware.ChargePointHandler         = (*simulator)(nil)
+)

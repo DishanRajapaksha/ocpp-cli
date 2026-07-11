@@ -18,7 +18,11 @@ jobs:
           cache: true
       - run: go mod tidy
       - name: Test
-        run: go test ./... 2>&1 | tee test.log
+        shell: bash
+        run: |
+          set -o pipefail
+          go test ./... 2>&1 | tee test.log
+      - run: go vet ./...
       - run: make build
       - name: Upload failed test log
         if: failure()

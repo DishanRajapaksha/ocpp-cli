@@ -1,18 +1,19 @@
 # ocpp-cli
 
-`ocpp-cli` is a small OCPP 1.6-J charge-point command-line client written in Go. It is intended for integration diagnostics, CSMS testing, commissioning scripts, and reproducible protocol experiments.
+`ocpp-cli` is a small OCPP 1.6-J charge-point command-line client written in Go. It is designed for CSMS integration diagnostics, commissioning scripts, protocol experiments, and reproducible one-shot tests.
 
-The initial release deliberately implements the charge-point-to-central-system direction. Each command opens an OCPP WebSocket connection, performs one operation, prints the confirmation, and disconnects.
+Each protocol command opens an OCPP WebSocket connection, performs one charge-point-to-central-system operation, renders the confirmation, and disconnects.
 
 ## Features
 
 - OCPP 1.6-J over `ws://` and `wss://`
-- YAML configuration with named profiles
+- YAML configuration with default and named profiles
 - HTTP Basic authentication for the WebSocket handshake
 - custom CA certificates and mutual TLS
-- file-based or base64-encoded certificates in configuration
+- file-based or base64-encoded certificates
 - table, text, JSON, and CSV snapshot output
 - stable exit codes shared with the other protocol CLIs
+- bash and zsh completion generation
 - core charge-point operations:
   - `BootNotification`
   - `Heartbeat`
@@ -21,6 +22,14 @@ The initial release deliberately implements the charge-point-to-central-system d
   - `MeterValues`
   - `StartTransaction`
   - `StopTransaction`
+  - `DataTransfer`
+  - `DiagnosticsStatusNotification`
+  - `FirmwareStatusNotification`
+- OCPP 1.6 security-extension operations:
+  - `SecurityEventNotification`
+  - `LogStatusNotification`
+  - `SignedFirmwareStatusNotification`
+  - `SignCertificate`
 
 ## Install
 
@@ -37,33 +46,17 @@ make build
 
 ## Quick start
 
-Create a starter configuration:
-
 ```bash
 ocpp-cli init-config
-```
-
-Edit `config.yaml`, then validate it without opening a network connection:
-
-```bash
 ocpp-cli validate-config
-```
-
-Test the WebSocket and OCPP subprotocol handshake:
-
-```bash
 ocpp-cli test-connection
-```
-
-Send the station boot notification:
-
-```bash
 ocpp-cli boot-notification
+ocpp-cli heartbeat
 ```
 
 ## Configuration
 
-By default, the CLI reads `config.yaml` from the current directory. Use `--config` to select another file and `--profile` to select a named profile. CLI flags override file values.
+The default configuration path is `config.yaml`. Use `--config` to select another file and `--profile` to choose a named profile. Command-line flags override configuration values.
 
 ```yaml
 default_profile: local
@@ -92,21 +85,13 @@ profiles:
     meter_type: ""
 ```
 
-The library appends `charge_point_id` to `central_system_url`. With the example above, the WebSocket URL is:
+The OCPP library appends `charge_point_id` to `central_system_url`. The example above connects to:
 
 ```text
 ws://localhost:8080/ocpp/CP001
 ```
 
-For a single self-contained secret file, PEM certificate and key bytes may be base64-encoded using:
-
-```yaml
-ca_cert_base64: "..."
-client_cert_base64: "..."
-client_key_base64: "..."
-```
-
-Do not commit credential-bearing configuration files.
+PEM certificate and key bytes may also be base64-encoded using `ca_cert_base64`, `client_cert_base64`, and `client_key_base64`. Do not commit credential-bearing configuration files.
 
 ## Commands
 
@@ -140,7 +125,7 @@ ocpp-cli status-notification \
   --error-code NoError
 ```
 
-### Metering
+### Metering and transactions
 
 ```bash
 ocpp-cli meter-values \
@@ -150,13 +135,7 @@ ocpp-cli meter-values \
   --unit Wh \
   --context Sample.Periodic \
   --location Outlet
-```
 
-Attach a sample to an active transaction with `--transaction-id`.
-
-### Transactions
-
-```bash
 ocpp-cli start-transaction \
   --connector 1 \
   --id-tag ABC123 \
@@ -168,7 +147,62 @@ ocpp-cli stop-transaction \
   --reason Local
 ```
 
-Timestamps default to the current UTC time. Pass `--timestamp` with an RFC 3339 value to reproduce historical or scripted scenarios.
+Timestamps default to the current UTC time. Pass `--timestamp` with an RFC 3339 value for scripted or historical scenarios.
+
+### Vendor data transfer
+
+Inline payloads must be valid JSON:
+
+```bash
+ocpp-cli data-transfer \
+  --vendor-id example.org \
+  --message-id SetMode \
+  --data '{"mode":"eco"}'
+```
+
+A JSON file may be used instead:
+
+```bash
+ocpp-cli data-transfer \
+  --vendor-id example.org \
+  --message-id SetMode \
+  --data-file payload.json
+```
+
+`--data` and `--data-file` are mutually exclusive. To send a JSON string, include the JSON quotes, for example `--data '"hello"'`.
+
+### Diagnostics and firmware status
+
+```bash
+ocpp-cli diagnostics-status --status Uploading
+ocpp-cli diagnostics-status --status Uploaded
+
+ocpp-cli firmware-status --status Downloading
+ocpp-cli firmware-status --status Installing
+ocpp-cli firmware-status --status Installed
+```
+
+### Security extension
+
+```bash
+ocpp-cli security-event \
+  --type InvalidFirmwareSignature \
+  --tech-info "signature verification failed"
+
+ocpp-cli log-status \
+  --request-id 7 \
+  --status Uploaded
+
+ocpp-cli signed-firmware-status \
+  --request-id 8 \
+  --status SignatureVerified
+
+ocpp-cli sign-certificate \
+  --csr-file station.csr \
+  --certificate-type ChargingStationCertificate
+```
+
+These commands use the OCPP 1.6 security extension and require matching CSMS support.
 
 ## Global flags
 
@@ -179,14 +213,12 @@ ocpp-cli --profile lab --format json heartbeat
 ocpp-cli heartbeat --profile lab --format json
 ```
 
-Important flags:
-
 | Flag | Purpose |
 |---|---|
 | `--config` | YAML configuration path, default `config.yaml` |
 | `--profile` | named configuration profile |
 | `--central-system-url` | CSMS WebSocket base URL |
-| `--charge-point-id` | charge point identity |
+| `--charge-point-id` | charge-point identity |
 | `--username`, `--password` | HTTP Basic authentication |
 | `--ca-cert` | custom CA PEM file |
 | `--client-cert`, `--client-key` | mutual-TLS identity |
@@ -199,7 +231,7 @@ Important flags:
 
 ## Output contract
 
-All current commands produce one snapshot and support:
+All current protocol commands produce a snapshot and support:
 
 ```text
 table, text, json, csv
@@ -222,11 +254,20 @@ table, text, json, csv
 | 8 | operation timeout |
 | 9 | output or formatting error |
 
-A rejected `BootNotification`, `Authorize`, or transaction authorization is still printed before the process exits with code 7. This makes the response available to scripts without disguising the rejection as success.
+Rejected `BootNotification`, `Authorize`, transaction, `DataTransfer`, and `SignCertificate` confirmations are rendered before the process exits with code 7. Scripts therefore receive the actual protocol response without treating a rejection as success.
+
+## Shell completions
+
+```bash
+ocpp-cli completions bash > ~/.local/share/bash-completion/completions/ocpp-cli
+ocpp-cli completions zsh > ~/.zfunc/_ocpp-cli
+```
+
+For zsh, ensure `~/.zfunc` is present in `fpath` before `compinit` runs.
 
 ## Current boundaries
 
-This first version is not a persistent station simulator or CSMS server. It does not yet handle incoming remote commands, maintain connector state between invocations, schedule recurring heartbeats, or stream raw message traffic. Those features require a long-running process and a state model rather than another pile of one-shot flags.
+The CLI is still a one-shot charge-point client. It does not yet provide a persistent station simulator, incoming CSMS command handlers, connector-state persistence, scheduled heartbeats, CSMS-server mode, or raw message streaming. Those features require a long-running state model rather than another stack of one-shot flags.
 
 ## Development
 
@@ -236,4 +277,4 @@ make test
 make build
 ```
 
-The implementation wraps `github.com/lorenzodonini/ocpp-go` behind an internal interface so CLI and output contracts can be tested without a live charging backend.
+CI runs dependency resolution, tests with pipe failure propagation, `go vet`, and a production build against the real upstream `lorenzodonini/ocpp-go` dependency.

@@ -40,15 +40,15 @@ func addCommonFlags(fs *flag.FlagSet, flags *commonFlags) {
 	fs.StringVar(&flags.tlsServerName, "tls-server-name", "", "override TLS server name")
 	fs.BoolVar(&flags.insecureSkipVerify, "insecure-skip-verify", false, "skip TLS certificate verification; diagnostics only")
 	fs.DurationVar(&flags.timeout, "timeout", 0, "connection and request timeout")
-	fs.StringVar(&flags.format, "format", "", "output format: table, text, json, or csv")
+	fs.StringVar(&flags.format, "format", "", "output format")
 	fs.BoolVar(&flags.verbose, "verbose", false, "print high-level connection decisions")
 	fs.BoolVar(&flags.debug, "debug", false, "enable protocol debug logging")
 }
 
-func resolveCommon(fs *flag.FlagSet, flags commonFlags) (config.ClientConfig, string, error) {
+func resolveClientConfig(fs *flag.FlagSet, flags commonFlags) (config.ClientConfig, error) {
 	cfg, err := config.LoadClientConfigForProfile(flags.configPath, flags.profile)
 	if err != nil {
-		return cfg, "", err
+		return cfg, err
 	}
 	visited := map[string]bool{}
 	fs.Visit(func(f *flag.Flag) { visited[f.Name] = true })
@@ -95,6 +95,14 @@ func resolveCommon(fs *flag.FlagSet, flags commonFlags) (config.ClientConfig, st
 		cfg.Debug = flags.debug
 	}
 	if err := config.ValidateClientConfig(cfg); err != nil {
+		return cfg, err
+	}
+	return cfg, nil
+}
+
+func resolveCommon(fs *flag.FlagSet, flags commonFlags) (config.ClientConfig, string, error) {
+	cfg, err := resolveClientConfig(fs, flags)
+	if err != nil {
 		return cfg, "", err
 	}
 	format, err := validateSnapshotFormat(cfg.Format)
@@ -166,7 +174,7 @@ func appendCommandGlobals(args, globals []string) []string {
 
 func commandSupportsCommonFlags(command string) bool {
 	switch command {
-	case "validate-config", "test-connection", "boot-notification", "heartbeat", "authorize", "status-notification", "meter-values", "start-transaction", "stop-transaction", "data-transfer", "diagnostics-status", "firmware-status", "security-event", "log-status", "signed-firmware-status", "sign-certificate":
+	case "run", "validate-config", "test-connection", "boot-notification", "heartbeat", "authorize", "status-notification", "meter-values", "start-transaction", "stop-transaction", "data-transfer", "diagnostics-status", "firmware-status", "security-event", "log-status", "signed-firmware-status", "sign-certificate":
 		return true
 	default:
 		return false

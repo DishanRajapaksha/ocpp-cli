@@ -15,6 +15,13 @@ type Station interface {
 	MeterValues(context.Context, MeterRequest) error
 	StartTransaction(context.Context, StartTransactionRequest) (StartTransactionResult, error)
 	StopTransaction(context.Context, StopTransactionRequest) (StopTransactionResult, error)
+	DataTransfer(context.Context, DataTransferRequest) (DataTransferResult, error)
+	DiagnosticsStatusNotification(context.Context, string) error
+	FirmwareStatusNotification(context.Context, string) error
+	SecurityEventNotification(context.Context, SecurityEventRequest) error
+	LogStatusNotification(context.Context, LogStatusRequest) error
+	SignedFirmwareStatusNotification(context.Context, SignedFirmwareStatusRequest) error
+	SignCertificate(context.Context, SignCertificateRequest) (SignCertificateResult, error)
 }
 
 type BootRequest struct {
@@ -87,4 +94,40 @@ type StopTransactionRequest struct {
 
 type StopTransactionResult struct {
 	Authorization *AuthorizationResult `json:"authorization,omitempty"`
+}
+
+type DataTransferRequest struct {
+	VendorID  string
+	MessageID string
+	Data      any
+}
+
+type DataTransferResult struct {
+	Status string `json:"status"`
+	Data   any    `json:"data,omitempty"`
+}
+
+type SecurityEventRequest struct {
+	Type      string
+	TechInfo  string
+	Timestamp time.Time
+}
+
+type LogStatusRequest struct {
+	Status    string
+	RequestID int
+}
+
+type SignedFirmwareStatusRequest struct {
+	Status    string
+	RequestID *int
+}
+
+type SignCertificateRequest struct {
+	CSR             string
+	CertificateType string
+}
+
+type SignCertificateResult struct {
+	Status string `json:"status"`
 }

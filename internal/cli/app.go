@@ -65,6 +65,22 @@ func (a *App) Run(args []string) int {
 		err = a.startTransaction(args[1:])
 	case "stop-transaction":
 		err = a.stopTransaction(args[1:])
+	case "data-transfer":
+		err = a.dataTransfer(args[1:])
+	case "diagnostics-status":
+		err = a.diagnosticsStatus(args[1:])
+	case "firmware-status":
+		err = a.firmwareStatus(args[1:])
+	case "security-event":
+		err = a.securityEvent(args[1:])
+	case "log-status":
+		err = a.logStatus(args[1:])
+	case "signed-firmware-status":
+		err = a.signedFirmwareStatus(args[1:])
+	case "sign-certificate":
+		err = a.signCertificate(args[1:])
+	case "completions":
+		err = a.completions(args[1:])
 	default:
 		a.printUsage()
 		fmt.Fprintf(a.err, "unknown command %q\n", args[0])
@@ -93,21 +109,37 @@ Usage:
   ocpp-cli meter-values --connector 1 --value 12345 --unit Wh
   ocpp-cli start-transaction --connector 1 --id-tag ABC123 --meter-start 12345
   ocpp-cli stop-transaction --transaction-id 42 --meter-stop 12800
+  ocpp-cli data-transfer --vendor-id example.org --message-id Ping --data '{"value":1}'
+  ocpp-cli diagnostics-status --status Uploaded
+  ocpp-cli firmware-status --status Installed
+  ocpp-cli security-event --type InvalidFirmwareSignature
+  ocpp-cli log-status --request-id 7 --status Uploaded
+  ocpp-cli signed-firmware-status --request-id 8 --status SignatureVerified
+  ocpp-cli sign-certificate --csr-file station.csr
+  ocpp-cli completions zsh
   ocpp-cli validate-config --profile local
   ocpp-cli init-config
 
 Commands:
-  version               Print version information
-  init-config           Write a starter config.yaml
-  validate-config       Validate local configuration without connecting
-  test-connection       Open and close an OCPP WebSocket connection
-  boot-notification     Send BootNotification
-  heartbeat             Send Heartbeat
-  authorize             Send Authorize
-  status-notification   Send StatusNotification
-  meter-values          Send one MeterValues sample
-  start-transaction     Send StartTransaction
-  stop-transaction      Send StopTransaction
+  version                    Print version information
+  init-config                Write a starter config.yaml
+  validate-config            Validate local configuration without connecting
+  test-connection            Open and close an OCPP WebSocket connection
+  boot-notification          Send BootNotification
+  heartbeat                  Send Heartbeat
+  authorize                  Send Authorize
+  status-notification        Send StatusNotification
+  meter-values               Send one MeterValues sample
+  start-transaction          Send StartTransaction
+  stop-transaction           Send StopTransaction
+  data-transfer              Send vendor-specific JSON data
+  diagnostics-status         Send DiagnosticsStatusNotification
+  firmware-status            Send FirmwareStatusNotification
+  security-event             Send SecurityEventNotification
+  log-status                 Send LogStatusNotification
+  signed-firmware-status     Send SignedFirmwareStatusNotification
+  sign-certificate           Send a PEM certificate signing request
+  completions                Generate bash or zsh completion scripts
 
 Global flags:
   --config               YAML config file, defaults to config.yaml
@@ -127,5 +159,5 @@ Global flags:
   --debug                Enable lower-level protocol logging
 
 CLI flags override values loaded from --config and --profile.
-All current commands are snapshots; jsonl is reserved for future stream commands.`)
+All current protocol commands are snapshots; jsonl is reserved for future stream commands.`)
 }

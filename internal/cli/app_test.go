@@ -17,7 +17,7 @@ func TestHelpAndUnknownCommand(t *testing.T) {
 	if code := app.Run(nil); code != 0 {
 		t.Fatalf("help exit code = %d", code)
 	}
-	if !strings.Contains(out.String(), "boot-notification") {
+	if !strings.Contains(out.String(), "boot-notification") || !strings.Contains(out.String(), "data-transfer") {
 		t.Fatalf("usage missing command: %s", out.String())
 	}
 	out.Reset()
@@ -101,9 +101,13 @@ func TestConnectionErrorUsesExitThree(t *testing.T) {
 }
 
 type fakeStation struct {
-	connectErr error
-	bootResult ocppclient.BootResult
-	bootErr    error
+	connectErr         error
+	bootResult         ocppclient.BootResult
+	bootErr            error
+	dataTransferResult ocppclient.DataTransferResult
+	dataTransferErr    error
+	signResult         ocppclient.SignCertificateResult
+	signErr            error
 }
 
 func (f *fakeStation) Connect(context.Context) error { return f.connectErr }
@@ -117,13 +121,32 @@ func (f *fakeStation) Heartbeat(context.Context) (ocppclient.HeartbeatResult, er
 func (f *fakeStation) Authorize(context.Context, string) (ocppclient.AuthorizationResult, error) {
 	return ocppclient.AuthorizationResult{Status: "Accepted"}, nil
 }
-func (f *fakeStation) StatusNotification(context.Context, ocppclient.StatusRequest) error { return nil }
-func (f *fakeStation) MeterValues(context.Context, ocppclient.MeterRequest) error         { return nil }
+func (f *fakeStation) StatusNotification(context.Context, ocppclient.StatusRequest) error {
+	return nil
+}
+func (f *fakeStation) MeterValues(context.Context, ocppclient.MeterRequest) error { return nil }
 func (f *fakeStation) StartTransaction(context.Context, ocppclient.StartTransactionRequest) (ocppclient.StartTransactionResult, error) {
 	return ocppclient.StartTransactionResult{}, nil
 }
 func (f *fakeStation) StopTransaction(context.Context, ocppclient.StopTransactionRequest) (ocppclient.StopTransactionResult, error) {
 	return ocppclient.StopTransactionResult{}, nil
+}
+func (f *fakeStation) DataTransfer(context.Context, ocppclient.DataTransferRequest) (ocppclient.DataTransferResult, error) {
+	return f.dataTransferResult, f.dataTransferErr
+}
+func (f *fakeStation) DiagnosticsStatusNotification(context.Context, string) error { return nil }
+func (f *fakeStation) FirmwareStatusNotification(context.Context, string) error    { return nil }
+func (f *fakeStation) SecurityEventNotification(context.Context, ocppclient.SecurityEventRequest) error {
+	return nil
+}
+func (f *fakeStation) LogStatusNotification(context.Context, ocppclient.LogStatusRequest) error {
+	return nil
+}
+func (f *fakeStation) SignedFirmwareStatusNotification(context.Context, ocppclient.SignedFirmwareStatusRequest) error {
+	return nil
+}
+func (f *fakeStation) SignCertificate(context.Context, ocppclient.SignCertificateRequest) (ocppclient.SignCertificateResult, error) {
+	return f.signResult, f.signErr
 }
 
 var _ ocppclient.Station = (*fakeStation)(nil)

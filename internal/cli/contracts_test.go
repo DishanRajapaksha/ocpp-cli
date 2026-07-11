@@ -21,3 +21,16 @@ func TestSnapshotFormats(t *testing.T) {
 		t.Fatal("jsonl should be rejected for snapshots")
 	}
 }
+
+func TestStreamFormats(t *testing.T) {
+	for _, format := range []string{"text", "jsonl", "csv"} {
+		if _, err := validateStreamFormat(format); err != nil {
+			t.Fatalf("format %q rejected: %v", format, err)
+		}
+	}
+	for _, format := range []string{"table", "json"} {
+		if _, err := validateStreamFormat(format); err == nil {
+			t.Fatalf("format %q should be rejected for streams", format)
+		}
+	}
+}

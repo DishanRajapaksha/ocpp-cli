@@ -2,7 +2,7 @@
 
 `ocpp-cli` is an OCPP 1.6-J charge-point command-line client and simulator written in Go. It is designed for CSMS integration diagnostics, commissioning scripts, protocol experiments, and reproducible station tests.
 
-Most protocol commands are one-shot operations: they connect, send one charge-point-to-CSMS request, render the confirmation, and disconnect. The `run` command keeps a simulated station online and responds to incoming CSMS commands.
+Most protocol commands are one-shot operations: they connect, send one charge-point-to-CSMS request, render the confirmation, and disconnect. The `run` command keeps an in-memory station online and responds to incoming CSMS commands.
 
 ## Features
 
@@ -14,28 +14,16 @@ Most protocol commands are one-shot operations: they connect, send one charge-po
 - text, JSONL, and CSV stream output
 - stable exit codes shared with the other protocol CLIs
 - bash and zsh completion generation
-- persistent in-memory charge-point simulator with:
-  - automatic `BootNotification`
-  - connector `StatusNotification` messages
-  - periodic heartbeats and optional meter values
-  - remote start and stop transaction handling
-  - availability, configuration, cache, reset, unlock, and data-transfer handlers
-- one-shot core operations:
-  - `BootNotification`
-  - `Heartbeat`
-  - `Authorize`
-  - `StatusNotification`
-  - `MeterValues`
-  - `StartTransaction`
-  - `StopTransaction`
-  - `DataTransfer`
-  - `DiagnosticsStatusNotification`
-  - `FirmwareStatusNotification`
-- OCPP 1.6 security-extension operations:
-  - `SecurityEventNotification`
-  - `LogStatusNotification`
-  - `SignedFirmwareStatusNotification`
-  - `SignCertificate`
+- persistent charge-point simulator supporting:
+  - automatic boot, status, heartbeat, and meter messages
+  - remote transaction start and stop
+  - Core profile configuration and control requests
+  - reservations and reservation expiry
+  - local authorization-list updates
+  - remote message triggers
+  - simulated diagnostics and firmware progress
+  - in-memory smart-charging profiles and composite schedules
+- one-shot charge-point operations for Core, firmware, and OCPP 1.6 security-extension messages
 
 ## Install
 
@@ -133,9 +121,9 @@ ocpp-cli run [connection flags] [simulator flags]
 | `--vendor` | config value | charge-point vendor override |
 | `--firmware-version` | config value | firmware version override |
 
-The simulator boots once, publishes status for the station and each connector, then remains connected. It maintains connector availability, status, meter values, and transaction IDs in memory.
+The simulator boots once, publishes status for the station and each connector, then remains connected. It maintains connector availability, status, meter values, transactions, reservations, local authorization entries, and charging profiles in memory.
 
-Supported incoming Core profile operations:
+### Core profile
 
 ```text
 ChangeAvailability
@@ -149,7 +137,71 @@ Reset
 UnlockConnector
 ```
 
-Remote-started transactions produce `StartTransaction` and connector status messages. Remote stops produce `StopTransaction` and return the connector to `Available` or `Unavailable` according to its configured availability.
+Remote starts produce `Preparing`, `StartTransaction`, and `Charging` transitions. Remote stops produce `Finishing`, `StopTransaction`, and the final idle state.
+
+When `AuthorizeRemoteTxRequests` is enabled through `ChangeConfiguration`, the simulator sends `Authorize` before attempting a remotely requested transaction.
+
+### Reservation profile
+
+```text
+ReserveNow
+CancelReservation
+```
+
+The simulator supports connector-specific and connector-zero reservations. Explicit connector reservations publish `Reserved`; cancellation or expiry restores `Available` or `Unavailable`. A matching reservation ID is included in `StartTransaction` and consumed after the transaction is accepted.
+
+### Local authorization-list profile
+
+```text
+GetLocalListVersion
+SendLocalList
+```
+
+Full and differential updates are supported. Differential entries with an omitted `idTagInfo` remove the corresponding tag. Stale list versions return `VersionMismatch`.
+
+### Remote trigger profile
+
+```text
+TriggerMessage
+```
+
+The following charge-point-originated messages can be triggered:
+
+```text
+BootNotification
+Heartbeat
+StatusNotification
+MeterValues
+DiagnosticsStatusNotification
+FirmwareStatusNotification
+```
+
+Triggered meter values use the OCPP `Trigger` reading context and do not advance the simulated energy register.
+
+### Firmware management profile
+
+```text
+GetDiagnostics
+UpdateFirmware
+```
+
+`GetDiagnostics` returns a generated diagnostic filename and simulates `Uploading` followed by `Uploaded`. `UpdateFirmware` honours `retrieveDate` and simulates `Downloading`, `Downloaded`, `Installing`, and `Installed` notifications.
+
+No HTTP file transfer, firmware verification, or installation is performed. These workflows exercise the OCPP message sequence only.
+
+### Smart charging profile
+
+```text
+SetChargingProfile
+ClearChargingProfile
+GetCompositeSchedule
+```
+
+Charging profiles are retained in memory and selected by connector, validity window, transaction applicability, and highest stack level. Composite schedules return the active stored schedule or a local default of 32 A / 22 kW when no profile applies.
+
+The simulator does not enforce the charging limit against meter values or emulate electrical behaviour.
+
+### Simulator output
 
 The simulator's stream formats are:
 
@@ -318,7 +370,7 @@ For zsh, ensure `~/.zfunc` is present in `fpath` before `compinit` runs.
 
 ## Current boundaries
 
-The simulator is intentionally in-memory. It does not persist connector state, emulate physical charging limits, download firmware, upload diagnostics, or implement every optional OCPP profile. It currently handles the incoming Core profile while the existing one-shot commands cover charge-point-originated firmware and security-extension messages.
+The simulator is intentionally in-memory. It does not persist state, emulate electrical limits, transfer diagnostic or firmware files, validate firmware images, or model physical charging hardware. Its purpose is deterministic OCPP integration testing rather than production charging-station firmware.
 
 ## Development
 
@@ -328,4 +380,4 @@ make test
 make build
 ```
 
-CI runs dependency resolution, tests with pipe failure propagation, `go vet`, and a production build against the real upstream `lorenzodonini/ocpp-go` dependency.
+CI runs dependency resolution, tests with pipe failure propagation, `go vet`, and a production build against the pinned upstream `lorenzodonini/ocpp-go` dependency.

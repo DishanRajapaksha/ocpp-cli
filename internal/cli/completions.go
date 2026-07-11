@@ -28,14 +28,13 @@ func (a *App) completions(args []string) error {
 	}
 }
 
-const completionSubcommands = "boot-notification heartbeat authorize status-notification meter-values start-transaction stop-transaction data-transfer diagnostics-status firmware-status security-event log-status signed-firmware-status sign-certificate test-connection validate-config init-config completions help"
+const completionSubcommands = "run boot-notification heartbeat authorize status-notification meter-values start-transaction stop-transaction data-transfer diagnostics-status firmware-status security-event log-status signed-firmware-status sign-certificate test-connection validate-config init-config completions help"
 const completionCommonFlags = "--config --profile --central-system-url --charge-point-id --username --password --ca-cert --client-cert --client-key --tls-server-name --insecure-skip-verify --timeout --format --verbose --debug"
 
 const bashCompletionScript = `#!/usr/bin/env bash
 _ocpp_cli_completions() {
   local cur prev words cword
   _init_completion || return
-
   local subcommands="` + completionSubcommands + `"
   local common_flags="` + completionCommonFlags + `"
 
@@ -45,6 +44,9 @@ _ocpp_cli_completions() {
   fi
 
   case "${words[1]}" in
+    run)
+      COMPREPLY=( $(compgen -W "${common_flags} --connectors --heartbeat-interval --meter-interval --meter-start --meter-step --duration --model --vendor --firmware-version" -- "${cur}") )
+      ;;
     boot-notification)
       COMPREPLY=( $(compgen -W "${common_flags} --model --vendor --firmware-version --serial-number --meter-serial-number --meter-type" -- "${cur}") )
       ;;
@@ -96,6 +98,7 @@ const zshCompletionScript = `#compdef ocpp-cli
 _ocpp_cli_completions() {
   local -a subcommands
   subcommands=(
+    'run:Run a persistent charge point simulator'
     'boot-notification:Send BootNotification'
     'heartbeat:Send Heartbeat'
     'authorize:Send Authorize'
@@ -130,7 +133,7 @@ _ocpp_cli_completions() {
     '--tls-server-name[TLS server-name override]:name:'
     '--insecure-skip-verify[Skip TLS certificate verification]'
     '--timeout[Connection and request timeout]:duration:'
-    '--format[Output format]:format:(table text json csv)'
+    '--format[Output format]:format:(table text json jsonl csv)'
     '--verbose[Print high-level connection decisions]'
     '--debug[Enable lower-level protocol logging]'
   )
@@ -141,6 +144,9 @@ _ocpp_cli_completions() {
   fi
 
   case $words[2] in
+    run)
+      _arguments $common_flags '--connectors[number of connectors]:count:' '--heartbeat-interval[heartbeat interval; zero uses CSMS value]:duration:' '--meter-interval[meter sample interval; zero disables]:duration:' '--meter-start[initial meter value in Wh]:value:' '--meter-step[Wh added per sample]:value:' '--duration[stop after duration]:duration:' '--model[charge point model]:model:' '--vendor[charge point vendor]:vendor:' '--firmware-version[firmware version]:version:'
+      ;;
     boot-notification)
       _arguments $common_flags '--model[charge point model]:model:' '--vendor[charge point vendor]:vendor:' '--firmware-version[firmware version]:version:' '--serial-number[charge point serial]:serial:' '--meter-serial-number[meter serial]:serial:' '--meter-type[meter type]:type:'
       ;;

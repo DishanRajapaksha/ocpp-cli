@@ -16,9 +16,7 @@ import (
 	"time"
 
 	"github.com/lorenzodonini/ocpp-go/ocpp1.6/certificates"
-	"github.com/lorenzodonini/ocpp-go/ocpp1.6/core"
 	"github.com/lorenzodonini/ocpp-go/ocpp1.6/extendedtriggermessage"
-	"github.com/lorenzodonini/ocpp-go/ocpp1.6/firmware"
 	"github.com/lorenzodonini/ocpp-go/ocpp1.6/logging"
 	"github.com/lorenzodonini/ocpp-go/ocpp1.6/securefirmware"
 	"github.com/lorenzodonini/ocpp-go/ocpp1.6/security"

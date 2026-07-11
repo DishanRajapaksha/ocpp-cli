@@ -12,6 +12,7 @@ import (
 	"github.com/DishanRajapaksha/ocpp-cli/internal/config"
 	ocpp16 "github.com/lorenzodonini/ocpp-go/ocpp1.6"
 	"github.com/lorenzodonini/ocpp-go/ocpp1.6/core"
+	"github.com/lorenzodonini/ocpp-go/ocpp1.6/firmware"
 	"github.com/lorenzodonini/ocpp-go/ocpp1.6/types"
 )
 
@@ -30,11 +31,20 @@ type simulator struct {
 	events    chan SimulatorEvent
 	closeOnce sync.Once
 
-	mu            sync.Mutex
-	ctx           context.Context
-	connectors    map[int]*connectorState
-	configuration map[string]core.ConfigurationKey
-	lastBoot      BootResult
+	eventMu      sync.RWMutex
+	eventsClosed bool
+
+	mu                   sync.Mutex
+	ctx                  context.Context
+	connectors           map[int]*connectorState
+	configuration        map[string]core.ConfigurationKey
+	reservations         map[int]*reservationState
+	localAuthList        map[string]*types.IdTagInfo
+	localAuthListVersion int
+	chargingProfiles     map[int]storedChargingProfile
+	diagnosticsStatus    firmware.DiagnosticsStatus
+	firmwareStatus       firmware.FirmwareStatus
+	lastBoot             BootResult
 }
 
 // NewSimulator creates a persistent OCPP 1.6 charge-point simulator.
@@ -59,12 +69,17 @@ func NewSimulator(cfg config.ClientConfig, opts SimulatorOptions) (Simulator, er
 	}
 	cp := ocpp16.NewChargePoint(cfg.ChargePointID, nil, wsClient)
 	s := &simulator{
-		cfg:           cfg,
-		opts:          opts,
-		cp:            cp,
-		events:        make(chan SimulatorEvent, 256),
-		connectors:    make(map[int]*connectorState, opts.Connectors),
-		configuration: make(map[string]core.ConfigurationKey),
+		cfg:                cfg,
+		opts:               opts,
+		cp:                 cp,
+		events:             make(chan SimulatorEvent, 256),
+		connectors:         make(map[int]*connectorState, opts.Connectors),
+		configuration:      make(map[string]core.ConfigurationKey),
+		reservations:       make(map[int]*reservationState),
+		localAuthList:      make(map[string]*types.IdTagInfo),
+		chargingProfiles:   make(map[int]storedChargingProfile),
+		diagnosticsStatus:  firmware.DiagnosticsStatusIdle,
+		firmwareStatus:     firmware.FirmwareStatusIdle,
 	}
 	for id := 1; id <= opts.Connectors; id++ {
 		s.connectors[id] = &connectorState{
@@ -73,12 +88,26 @@ func NewSimulator(cfg config.ClientConfig, opts SimulatorOptions) (Simulator, er
 			meter:        opts.MeterStart,
 		}
 	}
+
 	s.addConfiguration("NumberOfConnectors", strconv.Itoa(opts.Connectors), true)
-	s.addConfiguration("SupportedFeatureProfiles", "Core", true)
+	s.addConfiguration("SupportedFeatureProfiles", "Core,FirmwareManagement,LocalAuthListManagement,Reservation,RemoteTrigger,SmartCharging", true)
 	s.addConfiguration("AuthorizeRemoteTxRequests", "false", false)
 	s.addConfiguration("HeartbeatInterval", strconv.Itoa(int(opts.HeartbeatInterval.Seconds())), false)
 	s.addConfiguration("MeterValueSampleInterval", strconv.Itoa(int(opts.MeterInterval.Seconds())), false)
+	s.addConfiguration("LocalAuthListEnabled", "true", false)
+	s.addConfiguration("LocalAuthListMaxLength", "1000", true)
+	s.addConfiguration("ReserveConnectorZeroSupported", "true", true)
+	s.addConfiguration("ChargeProfileMaxStackLevel", "10", true)
+	s.addConfiguration("ChargingScheduleAllowedChargingRateUnit", "Current,Power", true)
+	s.addConfiguration("ChargingScheduleMaxPeriods", "24", true)
+	s.addConfiguration("MaxChargingProfilesInstalled", "100", true)
+
 	cp.SetCoreHandler(s)
+	cp.SetFirmwareManagementHandler(s)
+	cp.SetLocalAuthListHandler(s)
+	cp.SetReservationHandler(s)
+	cp.SetRemoteTriggerHandler(s)
+	cp.SetSmartChargingHandler(s)
 	return s, nil
 }
 
@@ -100,22 +129,10 @@ func (s *simulator) Run(ctx context.Context) error {
 	defer s.close()
 	s.emit("system", "Connect", "Connected", nil, s.cfg.CentralSystemURL+"/"+s.cfg.ChargePointID)
 
-	bootConfirmation, err := await(ctx, func() (*core.BootNotificationConfirmation, error) {
-		return s.cp.BootNotification(s.cfg.ChargePointModel, s.cfg.ChargePointVendor, func(request *core.BootNotificationRequest) {
-			request.FirmwareVersion = s.cfg.FirmwareVersion
-			request.ChargePointSerialNumber = s.cfg.SerialNumber
-			request.MeterSerialNumber = s.cfg.MeterSerialNumber
-			request.MeterType = s.cfg.MeterType
-		})
-	})
+	bootConfirmation, err := s.sendBootNotification(ctx)
 	if err != nil {
-		return classify(err, ErrProtocol)
+		return err
 	}
-	s.lastBoot = BootResult{Status: string(bootConfirmation.Status), Interval: bootConfirmation.Interval}
-	if bootConfirmation.CurrentTime != nil {
-		s.lastBoot.CurrentTime = bootConfirmation.CurrentTime.Time
-	}
-	s.emit("outbound", core.BootNotificationFeatureName, string(bootConfirmation.Status), nil, "")
 	if bootConfirmation.Status == core.RegistrationStatusRejected {
 		return fmt.Errorf("%w: BootNotification status is %s", ErrRejected, bootConfirmation.Status)
 	}
@@ -132,6 +149,8 @@ func (s *simulator) Run(ctx context.Context) error {
 	defer stopTicker(heartbeatTicker)
 	meterTicker, meterC := optionalTicker(s.opts.MeterInterval)
 	defer stopTicker(meterTicker)
+	reservationTicker := time.NewTicker(500 * time.Millisecond)
+	defer reservationTicker.Stop()
 
 	errorC := s.cp.Errors()
 	for {
@@ -152,6 +171,8 @@ func (s *simulator) Run(ctx context.Context) error {
 			if err := s.sendMeterValues(ctx); err != nil {
 				return err
 			}
+		case <-reservationTicker.C:
+			s.expireReservations(ctx)
 		}
 	}
 }
@@ -161,7 +182,10 @@ func (s *simulator) close() {
 		if s.cp.IsConnected() {
 			s.cp.Stop()
 		}
+		s.eventMu.Lock()
+		s.eventsClosed = true
 		close(s.events)
+		s.eventMu.Unlock()
 	})
 }
 
@@ -177,6 +201,28 @@ func stopTicker(ticker *time.Ticker) {
 	if ticker != nil {
 		ticker.Stop()
 	}
+}
+
+func (s *simulator) sendBootNotification(ctx context.Context) (*core.BootNotificationConfirmation, error) {
+	confirmation, err := await(ctx, func() (*core.BootNotificationConfirmation, error) {
+		return s.cp.BootNotification(s.cfg.ChargePointModel, s.cfg.ChargePointVendor, func(request *core.BootNotificationRequest) {
+			request.FirmwareVersion = s.cfg.FirmwareVersion
+			request.ChargePointSerialNumber = s.cfg.SerialNumber
+			request.MeterSerialNumber = s.cfg.MeterSerialNumber
+			request.MeterType = s.cfg.MeterType
+		})
+	})
+	if err != nil {
+		return nil, classify(err, ErrProtocol)
+	}
+	s.mu.Lock()
+	s.lastBoot = BootResult{Status: string(confirmation.Status), Interval: confirmation.Interval}
+	if confirmation.CurrentTime != nil {
+		s.lastBoot.CurrentTime = confirmation.CurrentTime.Time
+	}
+	s.mu.Unlock()
+	s.emit("outbound", core.BootNotificationFeatureName, string(confirmation.Status), nil, "")
+	return confirmation, nil
 }
 
 func (s *simulator) sendInitialStatuses(ctx context.Context) error {
@@ -221,28 +267,34 @@ func (s *simulator) sendMeterValues(ctx context.Context) error {
 	s.mu.Unlock()
 	sort.Slice(samples, func(i, j int) bool { return samples[i].id < samples[j].id })
 	for _, current := range samples {
-		sampled := types.SampledValue{
-			Value:     strconv.Itoa(current.meter),
-			Context:   types.ReadingContextSamplePeriodic,
-			Format:    types.ValueFormatRaw,
-			Measurand: types.MeasurandEnergyActiveImportRegister,
-			Location:  types.LocationOutlet,
-			Unit:      types.UnitOfMeasureWh,
+		if err := s.sendMeterSample(ctx, current.id, current.meter, current.txID, types.ReadingContextSamplePeriodic); err != nil {
+			return err
 		}
-		meterValue := types.MeterValue{Timestamp: types.Now(), SampledValue: []types.SampledValue{sampled}}
-		_, err := await(ctx, func() (*core.MeterValuesConfirmation, error) {
-			return s.cp.MeterValues(current.id, []types.MeterValue{meterValue}, func(request *core.MeterValuesRequest) {
-				if current.txID > 0 {
-					request.TransactionId = &current.txID
-				}
-			})
-		})
-		if err != nil {
-			return classify(err, ErrProtocol)
-		}
-		connectorID := current.id
-		s.emit("outbound", core.MeterValuesFeatureName, "Accepted", &connectorID, strconv.Itoa(current.meter)+" Wh")
 	}
+	return nil
+}
+
+func (s *simulator) sendMeterSample(ctx context.Context, connectorID, meter, transactionID int, readingContext types.ReadingContext) error {
+	sampled := types.SampledValue{
+		Value:     strconv.Itoa(meter),
+		Context:   readingContext,
+		Format:    types.ValueFormatRaw,
+		Measurand: types.MeasurandEnergyActiveImportRegister,
+		Location:  types.LocationOutlet,
+		Unit:      types.UnitOfMeasureWh,
+	}
+	meterValue := types.MeterValue{Timestamp: types.Now(), SampledValue: []types.SampledValue{sampled}}
+	_, err := await(ctx, func() (*core.MeterValuesConfirmation, error) {
+		return s.cp.MeterValues(connectorID, []types.MeterValue{meterValue}, func(request *core.MeterValuesRequest) {
+			if transactionID > 0 {
+				request.TransactionId = &transactionID
+			}
+		})
+	})
+	if err != nil {
+		return classify(err, ErrProtocol)
+	}
+	s.emit("outbound", core.MeterValuesFeatureName, "Accepted", &connectorID, strconv.Itoa(meter)+" Wh")
 	return nil
 }
 
@@ -259,8 +311,20 @@ func (s *simulator) notifyStatus(ctx context.Context, connectorID int, status co
 	return nil
 }
 
+func (s *simulator) notifyStatusAsync(connectorID int, status core.ChargePointStatus) {
+	if !s.cp.IsConnected() {
+		return
+	}
+	go func() { _ = s.notifyStatus(s.runContext(), connectorID, status) }()
+}
+
 func (s *simulator) emit(direction, action, status string, connectorID *int, detail string) {
 	event := SimulatorEvent{Timestamp: time.Now().UTC(), Direction: direction, Action: action, Status: status, ConnectorID: connectorID, Detail: detail}
+	s.eventMu.RLock()
+	defer s.eventMu.RUnlock()
+	if s.eventsClosed {
+		return
+	}
 	select {
 	case s.events <- event:
 	default:

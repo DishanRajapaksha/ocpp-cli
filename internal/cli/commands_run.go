@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/DishanRajapaksha/ocpp-cli/internal/config"
 	"github.com/DishanRajapaksha/ocpp-cli/internal/ocppclient"

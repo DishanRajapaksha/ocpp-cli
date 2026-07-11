@@ -29,15 +29,14 @@ func (s *simulator) OnChangeAvailability(request *core.ChangeAvailabilityRequest
 	for _, id := range ids {
 		connector := s.connectors[id]
 		connector.availability = request.Type
+		if request.Type == core.AvailabilityTypeInoperative {
+			s.removeReservationsForConnectorLocked(id)
+		}
 		if connector.transactionID > 0 {
 			scheduled = true
 			continue
 		}
-		if request.Type == core.AvailabilityTypeInoperative {
-			connector.status = core.ChargePointStatusUnavailable
-		} else {
-			connector.status = core.ChargePointStatusAvailable
-		}
+		connector.status = s.idleStatusLocked(id)
 		updates[id] = connector.status
 	}
 	s.mu.Unlock()
@@ -47,9 +46,7 @@ func (s *simulator) OnChangeAvailability(request *core.ChangeAvailabilityRequest
 	}
 	s.emit("inbound", core.ChangeAvailabilityFeatureName, string(status), &request.ConnectorId, string(request.Type))
 	for id, connectorStatus := range updates {
-		idCopy := id
-		statusCopy := connectorStatus
-		go func() { _ = s.notifyStatus(s.runContext(), idCopy, statusCopy) }()
+		s.notifyStatusAsync(id, connectorStatus)
 	}
 	return core.NewChangeAvailabilityConfirmation(status), nil
 }
@@ -114,48 +111,62 @@ func (s *simulator) OnGetConfiguration(request *core.GetConfigurationRequest) (*
 
 func (s *simulator) OnRemoteStartTransaction(request *core.RemoteStartTransactionRequest) (*core.RemoteStartTransactionConfirmation, error) {
 	s.mu.Lock()
-	connectorID := 0
-	if request.ConnectorId != nil {
-		connectorID = *request.ConnectorId
-	} else {
-		for id := 1; id <= s.opts.Connectors; id++ {
-			connector := s.connectors[id]
-			if connector.availability == core.AvailabilityTypeOperative && connector.status == core.ChargePointStatusAvailable && connector.transactionID == 0 {
-				connectorID = id
-				break
-			}
-		}
-	}
-	connector, ok := s.connectors[connectorID]
-	if !ok || connector.availability != core.AvailabilityTypeOperative || connector.status != core.ChargePointStatusAvailable || connector.transactionID != 0 {
+	connectorID, reservationID, ok := s.selectRemoteStartConnectorLocked(request.ConnectorId, request.IdTag)
+	if !ok {
 		s.mu.Unlock()
 		s.emit("inbound", core.RemoteStartTransactionFeatureName, string(types.RemoteStartStopStatusRejected), request.ConnectorId, request.IdTag)
 		return core.NewRemoteStartTransactionConfirmation(types.RemoteStartStopStatusRejected), nil
 	}
+	connector := s.connectors[connectorID]
 	connector.status = core.ChargePointStatusPreparing
 	connector.idTag = request.IdTag
+	if request.ChargingProfile != nil {
+		s.chargingProfiles[request.ChargingProfile.ChargingProfileId] = storedChargingProfile{connectorID: connectorID, profile: request.ChargingProfile}
+	}
 	s.mu.Unlock()
-	s.emit("inbound", core.RemoteStartTransactionFeatureName, string(types.RemoteStartStopStatusAccepted), &connectorID, request.IdTag)
-	go s.beginRemoteTransaction(connectorID, request.IdTag)
+	detail := request.IdTag
+	if reservationID > 0 {
+		detail += " reservation=" + strconv.Itoa(reservationID)
+	}
+	s.emit("inbound", core.RemoteStartTransactionFeatureName, string(types.RemoteStartStopStatusAccepted), &connectorID, detail)
+	go s.beginRemoteTransaction(connectorID, request.IdTag, reservationID)
 	return core.NewRemoteStartTransactionConfirmation(types.RemoteStartStopStatusAccepted), nil
 }
 
-func (s *simulator) beginRemoteTransaction(connectorID int, idTag string) {
+func (s *simulator) beginRemoteTransaction(connectorID int, idTag string, reservationID int) {
 	ctx := s.runContext()
 	_ = s.notifyStatus(ctx, connectorID, core.ChargePointStatusPreparing)
+
+	s.mu.Lock()
+	authorizeRemote := s.configurationBoolLocked("AuthorizeRemoteTxRequests")
+	s.mu.Unlock()
+	if authorizeRemote {
+		confirmation, err := await(ctx, func() (*core.AuthorizeConfirmation, error) { return s.cp.Authorize(idTag) })
+		if err != nil || confirmation.IdTagInfo == nil || confirmation.IdTagInfo.Status != types.AuthorizationStatusAccepted {
+			detail := "authorization rejected"
+			if err != nil {
+				detail = err.Error()
+			}
+			s.restoreConnectorAfterFailedStart(connectorID)
+			s.emit("outbound", core.AuthorizeFeatureName, "Rejected", &connectorID, detail)
+			return
+		}
+		s.emit("outbound", core.AuthorizeFeatureName, string(confirmation.IdTagInfo.Status), &connectorID, idTag)
+	}
+
 	s.mu.Lock()
 	meterStart := s.connectors[connectorID].meter
 	s.mu.Unlock()
 	confirmation, err := await(ctx, func() (*core.StartTransactionConfirmation, error) {
-		return s.cp.StartTransaction(connectorID, idTag, meterStart, types.Now())
+		return s.cp.StartTransaction(connectorID, idTag, meterStart, types.Now(), func(request *core.StartTransactionRequest) {
+			if reservationID > 0 {
+				request.ReservationId = &reservationID
+			}
+		})
 	})
 	if err != nil {
-		s.mu.Lock()
-		s.connectors[connectorID].status = core.ChargePointStatusAvailable
-		s.connectors[connectorID].idTag = ""
-		s.mu.Unlock()
+		s.restoreConnectorAfterFailedStart(connectorID)
 		s.emit("outbound", core.StartTransactionFeatureName, "Error", &connectorID, err.Error())
-		_ = s.notifyStatus(ctx, connectorID, core.ChargePointStatusAvailable)
 		return
 	}
 	status := ""
@@ -167,14 +178,27 @@ func (s *simulator) beginRemoteTransaction(connectorID int, idTag string) {
 	if status == string(types.AuthorizationStatusAccepted) {
 		connector.transactionID = confirmation.TransactionId
 		connector.status = core.ChargePointStatusCharging
+		if reservationID > 0 {
+			s.consumeReservationLocked(reservationID)
+		}
 	} else {
-		connector.status = core.ChargePointStatusAvailable
+		connector.status = s.idleStatusLocked(connectorID)
 		connector.idTag = ""
 	}
 	finalStatus := connector.status
 	s.mu.Unlock()
 	s.emit("outbound", core.StartTransactionFeatureName, status, &connectorID, strconv.Itoa(confirmation.TransactionId))
 	_ = s.notifyStatus(ctx, connectorID, finalStatus)
+}
+
+func (s *simulator) restoreConnectorAfterFailedStart(connectorID int) {
+	s.mu.Lock()
+	connector := s.connectors[connectorID]
+	connector.status = s.idleStatusLocked(connectorID)
+	connector.idTag = ""
+	status := connector.status
+	s.mu.Unlock()
+	s.notifyStatusAsync(connectorID, status)
 }
 
 func (s *simulator) OnRemoteStopTransaction(request *core.RemoteStopTransactionRequest) (*core.RemoteStopTransactionConfirmation, error) {
@@ -222,11 +246,7 @@ func (s *simulator) finishRemoteTransaction(connectorID, transactionID int) {
 	s.mu.Lock()
 	connector.transactionID = 0
 	connector.idTag = ""
-	if connector.availability == core.AvailabilityTypeInoperative {
-		connector.status = core.ChargePointStatusUnavailable
-	} else {
-		connector.status = core.ChargePointStatusAvailable
-	}
+	connector.status = s.idleStatusLocked(connectorID)
 	finalStatus := connector.status
 	s.mu.Unlock()
 	s.emit("outbound", core.StopTransactionFeatureName, status, &connectorID, strconv.Itoa(transactionID))
@@ -239,19 +259,13 @@ func (s *simulator) OnReset(request *core.ResetRequest) (*core.ResetConfirmation
 	for id, connector := range s.connectors {
 		connector.transactionID = 0
 		connector.idTag = ""
-		if connector.availability == core.AvailabilityTypeInoperative {
-			connector.status = core.ChargePointStatusUnavailable
-		} else {
-			connector.status = core.ChargePointStatusAvailable
-		}
+		connector.status = s.idleStatusLocked(id)
 		updates[id] = connector.status
 	}
 	s.mu.Unlock()
 	s.emit("inbound", core.ResetFeatureName, string(core.ResetStatusAccepted), nil, string(request.Type))
 	for id, status := range updates {
-		idCopy := id
-		statusCopy := status
-		go func() { _ = s.notifyStatus(s.runContext(), idCopy, statusCopy) }()
+		s.notifyStatusAsync(id, status)
 	}
 	return core.NewResetConfirmation(core.ResetStatusAccepted), nil
 }

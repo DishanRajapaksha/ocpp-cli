@@ -3,9 +3,9 @@ package cli
 import (
 	"flag"
 	"fmt"
-	"strings"
 	"time"
 
+	"github.com/DishanRajapaksha/industrial-cli-kit/command"
 	"github.com/DishanRajapaksha/ocpp-cli/internal/config"
 )
 
@@ -113,70 +113,5 @@ func resolveCommon(fs *flag.FlagSet, flags commonFlags) (config.ClientConfig, st
 }
 
 func normaliseGlobalFlags(args []string) ([]string, error) {
-	if len(args) == 0 {
-		return args, nil
-	}
-	var globals []string
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-		if arg == "--" {
-			if i+1 >= len(args) {
-				return nil, fmt.Errorf("command is required after --")
-			}
-			return appendCommandGlobals(args[i+1:], globals), nil
-		}
-		if !strings.HasPrefix(arg, "-") || arg == "-" {
-			return appendCommandGlobals(args[i:], globals), nil
-		}
-		if arg == "--help" || arg == "-h" || arg == "--version" || arg == "-v" {
-			return args[i:], nil
-		}
-		name, inline, hasInline := strings.Cut(arg, "=")
-		switch name {
-		case "--verbose", "--debug", "--insecure-skip-verify":
-			if hasInline {
-				return nil, fmt.Errorf("%s does not take a value", name)
-			}
-			globals = append(globals, name)
-		case "--config", "--profile", "--central-system-url", "--charge-point-id", "--username", "--password", "--ca-cert", "--client-cert", "--client-key", "--tls-server-name", "--timeout", "--format":
-			value := inline
-			if !hasInline {
-				i++
-				if i >= len(args) || strings.HasPrefix(args[i], "-") {
-					return nil, fmt.Errorf("%s requires a value", name)
-				}
-				value = args[i]
-			}
-			if value == "" {
-				return nil, fmt.Errorf("%s requires a value", name)
-			}
-			globals = append(globals, name, value)
-		default:
-			return nil, fmt.Errorf("unknown global flag %q", name)
-		}
-	}
-	return nil, fmt.Errorf("command is required")
-}
-
-func appendCommandGlobals(args, globals []string) []string {
-	if len(args) == 0 || len(globals) == 0 {
-		return args
-	}
-	if !commandSupportsCommonFlags(args[0]) {
-		return args
-	}
-	out := make([]string, 0, len(args)+len(globals))
-	out = append(out, args[0])
-	out = append(out, globals...)
-	out = append(out, args[1:]...)
-	return out
-}
-
-func commandSupportsCommonFlags(command string) bool {
-	switch command {
-	case "run", "validate-config", "test-connection", "boot-notification", "heartbeat", "authorize", "status-notification", "meter-values", "start-transaction", "stop-transaction", "data-transfer", "diagnostics-status", "firmware-status", "security-event", "log-status", "signed-firmware-status", "sign-certificate":
-		return true
-	default:
-		return false
-	}
+	return command.NormalizeGlobalFlags(args, cliRegistry.GlobalFlags)
 }

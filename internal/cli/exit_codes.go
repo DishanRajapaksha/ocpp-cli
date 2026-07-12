@@ -6,22 +6,23 @@ import (
 	"flag"
 	"strings"
 
+	"github.com/DishanRajapaksha/industrial-cli-kit/exitcode"
 	"github.com/DishanRajapaksha/ocpp-cli/internal/config"
 	"github.com/DishanRajapaksha/ocpp-cli/internal/ocppclient"
 	"github.com/DishanRajapaksha/ocpp-cli/internal/output"
 )
 
 const (
-	exitSuccess         = 0
-	exitGeneralError    = 1
-	exitConfigError     = 2
-	exitConnection      = 3
-	exitProtocolRequest = 4
-	exitAuthSecurity    = 5
-	exitResourceMissing = 6
-	exitRejected        = 7
-	exitTimeout         = 8
-	exitOutputError     = 9
+	exitSuccess         = int(exitcode.Success)
+	exitGeneralError    = int(exitcode.General)
+	exitConfigError     = int(exitcode.Config)
+	exitConnection      = int(exitcode.Connection)
+	exitProtocolRequest = int(exitcode.Request)
+	exitAuthSecurity    = int(exitcode.AuthSecurity)
+	exitResourceMissing = int(exitcode.ResourceMissing)
+	exitRejected        = int(exitcode.Rejected)
+	exitTimeout         = int(exitcode.Timeout)
+	exitOutputError     = int(exitcode.Output)
 )
 
 func mapExitCode(err error) int {

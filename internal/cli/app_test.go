@@ -7,9 +7,18 @@ import (
 	"testing"
 	"time"
 
+	"github.com/DishanRajapaksha/industrial-cli-kit/contracttest"
 	"github.com/DishanRajapaksha/ocpp-cli/internal/config"
 	"github.com/DishanRajapaksha/ocpp-cli/internal/ocppclient"
 )
+
+func TestSharedCommandContract(t *testing.T) {
+	contracttest.Baseline(t, func(args ...string) contracttest.Result {
+		var out, errOut bytes.Buffer
+		code := NewApp(&out, &errOut).Run(args)
+		return contracttest.Result{Code: code, Stdout: out.String(), Stderr: errOut.String()}
+	})
+}
 
 func TestHelpAndUnknownCommand(t *testing.T) {
 	var out, errOut bytes.Buffer

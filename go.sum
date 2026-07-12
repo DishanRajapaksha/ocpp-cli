@@ -1,5 +1,5 @@
-github.com/DishanRajapaksha/industrial-cli-kit v0.1.0 h1:yXU8suAVVnjzhpL+u8HwcdAgBrhuOpBLxjNkKKMI/h4=
-github.com/DishanRajapaksha/industrial-cli-kit v0.1.0/go.mod h1:VMMmT0qKjdZ8kJE88HFZDJDa4gftgSX7gXwQTY4mtuM=
+github.com/DishanRajapaksha/industrial-cli-kit v0.0.0-20260712085609-0cf30ef92957 h1:dusI+cJaPjei6qwF2R741h2/qno6OBvj44ijKhPCCE4=
+github.com/DishanRajapaksha/industrial-cli-kit v0.0.0-20260712085609-0cf30ef92957/go.mod h1:VMMmT0qKjdZ8kJE88HFZDJDa4gftgSX7gXwQTY4mtuM=
 github.com/Shopify/toxiproxy v2.1.4+incompatible h1:TKdv8HiTLgE5wdJuEML90aBgNWsokNbMijUGhmcoBJc=
 github.com/Shopify/toxiproxy v2.1.4+incompatible/go.mod h1:OXgGpZ6Cli1/URJOF1DMxUHB2q5Ap20/P/eIdh4G0pI=
 github.com/caarlos0/env/v11 v11.3.1 h1:cArPWC15hWmEt+gWk7YBi7lEXTXCvpaSdCiZE2X5mCA=
@@ -34,7 +34,7 @@ github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+
 github.com/stretchr/objx v0.1.1/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
 github.com/stretchr/objx v0.4.0 h1:M2gUjqZET1qApGOWNSnZ49BAIMX4F/1plDv3+l31EJ4=
 github.com/stretchr/objx v0.4.0/go.mod h1:YvHI0jy2hoMjB+UWwv71VJQ9isScKT/TqJzVSSt89Yw=
-github.com/stretchr/testify v1.2.2/go.mod h1:a8OnRcib4nhh0OaRAV+Yts87kKdq0PP7pXfy6kDkUVs=
+github.com/stretchr/testify v1.2.2/go.mod h1:a8OnRcib4nhh0OARqs3+rkHYY13jYWTU97c=
 github.com/stretchr/testify v1.7.1/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/h/Wwjteg=
 github.com/stretchr/testify v1.8.0 h1:pSgiaMZlXftHpm5L7V1+rVB+AZJydKsMxsQBIJw4PKk=
 github.com/stretchr/testify v1.8.0/go.mod h1:yNjHg4UonilssWZ8iaSj1OCr/vHnekPRkoO+kdMU+MU=

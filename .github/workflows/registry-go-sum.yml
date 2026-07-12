@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - agent/adopt-command-registry-clean
+  pull_request:
 
 permissions:
   contents: read

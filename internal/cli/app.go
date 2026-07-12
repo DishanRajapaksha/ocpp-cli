@@ -55,6 +55,10 @@ func (a *App) Run(args []string) int {
 		err = a.validateConfig(args[1:])
 	case "test-connection":
 		err = a.testConnection(args[1:])
+	case "status":
+		err = a.testConnection(args[1:])
+	case "send":
+		err = a.send(args[1:])
 	case "boot-notification":
 		err = a.bootNotification(args[1:])
 	case "heartbeat":
@@ -107,6 +111,8 @@ Usage:
   ocpp-cli [global flags] <command> [flags]
   ocpp-cli run --connectors 2 --meter-interval 30s --format jsonl
   ocpp-cli test-connection --profile local
+  ocpp-cli status --profile local
+  ocpp-cli send heartbeat --profile local
   ocpp-cli boot-notification --profile local
   ocpp-cli heartbeat --profile local
   ocpp-cli authorize --profile local --id-tag ABC123
@@ -131,6 +137,8 @@ Commands:
   init-config                Write a starter config.yaml
   validate-config            Validate local configuration without connecting
   test-connection            Open and close an OCPP WebSocket connection
+  status                     Alias for test-connection
+  send                       Send a named OCPP operation
   boot-notification          Send BootNotification
   heartbeat                  Send Heartbeat
   authorize                  Send Authorize
@@ -166,4 +174,52 @@ Global flags:
 
 CLI flags override values loaded from --config and --profile.
 Snapshot commands support table, text, json, and csv. The run stream supports text, jsonl, and csv.`)
+}
+
+// send dispatches the canonical namespaced OCPP operations. The historical
+// top-level commands remain supported as compatibility aliases.
+func (a *App) send(args []string) error {
+	normalised, err := normaliseGlobalFlags(args)
+	if err != nil {
+		return err
+	}
+	if len(normalised) == 0 || normalised[0] == "help" || normalised[0] == "--help" || normalised[0] == "-h" {
+		fmt.Fprintln(a.out, "Usage: ocpp-cli send <operation> [flags]")
+		fmt.Fprintln(a.out, "Operations: boot-notification heartbeat authorize status-notification meter-values start-transaction stop-transaction data-transfer diagnostics-status firmware-status security-event log-status signed-firmware-status sign-certificate")
+		return nil
+	}
+
+	operation, args := normalised[0], normalised[1:]
+	switch operation {
+	case "boot-notification":
+		return a.bootNotification(args)
+	case "heartbeat":
+		return a.heartbeat(args)
+	case "authorize":
+		return a.authorize(args)
+	case "status-notification":
+		return a.statusNotification(args)
+	case "meter-values":
+		return a.meterValues(args)
+	case "start-transaction":
+		return a.startTransaction(args)
+	case "stop-transaction":
+		return a.stopTransaction(args)
+	case "data-transfer":
+		return a.dataTransfer(args)
+	case "diagnostics-status":
+		return a.diagnosticsStatus(args)
+	case "firmware-status":
+		return a.firmwareStatus(args)
+	case "security-event":
+		return a.securityEvent(args)
+	case "log-status":
+		return a.logStatus(args)
+	case "signed-firmware-status":
+		return a.signedFirmwareStatus(args)
+	case "sign-certificate":
+		return a.signCertificate(args)
+	default:
+		return fmt.Errorf("unknown OCPP operation %q", operation)
+	}
 }

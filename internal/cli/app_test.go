@@ -100,6 +100,25 @@ func TestConnectionErrorUsesExitThree(t *testing.T) {
 	}
 }
 
+func TestStatusAndSendSupportCanonicalForms(t *testing.T) {
+	var out, errOut bytes.Buffer
+	app := NewApp(&out, &errOut)
+	app.newStation = func(config.ClientConfig) (ocppclient.Station, error) {
+		return &fakeStation{}, nil
+	}
+	if code := app.Run([]string{"status", "--format", "json"}); code != exitSuccess {
+		t.Fatalf("status exit code = %d, stderr=%s", code, errOut.String())
+	}
+	out.Reset()
+	errOut.Reset()
+	if code := app.Run([]string{"send", "heartbeat", "--format", "json"}); code != exitSuccess {
+		t.Fatalf("send heartbeat exit code = %d, stderr=%s", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), "current_time") {
+		t.Fatalf("heartbeat output = %s", out.String())
+	}
+}
+
 type fakeStation struct {
 	connectErr         error
 	bootResult         ocppclient.BootResult

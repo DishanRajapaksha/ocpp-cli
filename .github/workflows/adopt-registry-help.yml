@@ -1,0 +1,49 @@
+name: Adopt registry-driven help
+
+on:
+  push:
+    branches:
+      - agent/adopt-registry-help
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/adopt-registry-help
+      - name: Replace manual root help
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('internal/cli/app.go')
+          text = path.read_text()
+          signature = 'func (a *App) printUsage()'
+          start = text.index(signature)
+          brace = text.index('{', start)
+          depth = 0
+          end = None
+          for index in range(brace, len(text)):
+              if text[index] == '{':
+                  depth += 1
+              elif text[index] == '}':
+                  depth -= 1
+                  if depth == 0:
+                      end = index + 1
+                      break
+          if end is None:
+              raise SystemExit('printUsage closing brace not found')
+          replacement = signature + ' {\n\ta.writeRegistryUsage()\n}'
+          path.write_text(text[:start] + replacement + text[end:])
+          PY
+      - name: Commit help migration
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add internal/cli/app.go
+          git commit -m "Render root help from command registry"
+          git push

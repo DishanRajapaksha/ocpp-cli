@@ -1,1 +1,0 @@
-This branch adopts the registry-capable industrial-cli-kit pseudo-version derived from merged commit 0cf30ef929572355f7bc852698d1b112befea2c7. Replace the pseudo-version with the next semantic tag when the tag is published.

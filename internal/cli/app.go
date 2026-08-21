@@ -90,9 +90,9 @@ func (a *App) Run(args []string) int {
 	case "completions":
 		err = a.completions(args[1:])
 	default:
-		a.printUsage()
+		a.writeRegistryUsageTo(a.err)
 		fmt.Fprintf(a.err, "unknown command %q\n", args[0])
-		return exitGeneralError
+		return exitConfigError
 	}
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {

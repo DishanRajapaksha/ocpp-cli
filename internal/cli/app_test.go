@@ -30,7 +30,7 @@ func TestHelpAndUnknownCommand(t *testing.T) {
 		t.Fatalf("usage missing command: %s", out.String())
 	}
 	out.Reset()
-	if code := app.Run([]string{"bogus"}); code != exitGeneralError {
+	if code := app.Run([]string{"bogus"}); code != exitConfigError {
 		t.Fatalf("unknown command exit code = %d", code)
 	}
 }

@@ -52,28 +52,63 @@ func resolveClientConfig(fs *flag.FlagSet, flags commonFlags) (config.ClientConf
 	}
 	visited := map[string]bool{}
 	fs.Visit(func(f *flag.Flag) { visited[f.Name] = true })
-	if visited["central-system-url"] { cfg.CentralSystemURL = flags.centralSystemURL }
-	if visited["charge-point-id"] { cfg.ChargePointID = flags.chargePointID }
-	if visited["username"] { cfg.Username = flags.username }
-	if visited["password"] { cfg.Password = flags.password }
-	if visited["ca-cert"] { cfg.CACertFile = flags.caCert; cfg.CACertPEM = nil }
-	if visited["client-cert"] { cfg.ClientCertFile = flags.clientCert; cfg.ClientCertPEM = nil }
-	if visited["client-key"] { cfg.ClientKeyFile = flags.clientKey; cfg.ClientKeyPEM = nil }
-	if visited["tls-server-name"] { cfg.TLSServerName = flags.tlsServerName }
-	if visited["insecure-skip-verify"] { cfg.InsecureSkipVerify = flags.insecureSkipVerify }
-	if visited["timeout"] { cfg.Timeout = flags.timeout }
-	if visited["format"] { cfg.Format = flags.format }
-	if visited["verbose"] { cfg.Verbose = flags.verbose }
-	if visited["debug"] { cfg.Debug = flags.debug }
-	if err := config.ValidateClientConfig(cfg); err != nil { return cfg, err }
+	if visited["central-system-url"] {
+		cfg.CentralSystemURL = flags.centralSystemURL
+	}
+	if visited["charge-point-id"] {
+		cfg.ChargePointID = flags.chargePointID
+	}
+	if visited["username"] {
+		cfg.Username = flags.username
+	}
+	if visited["password"] {
+		cfg.Password = flags.password
+	}
+	if visited["ca-cert"] {
+		cfg.CACertFile = flags.caCert
+		cfg.CACertPEM = nil
+	}
+	if visited["client-cert"] {
+		cfg.ClientCertFile = flags.clientCert
+		cfg.ClientCertPEM = nil
+	}
+	if visited["client-key"] {
+		cfg.ClientKeyFile = flags.clientKey
+		cfg.ClientKeyPEM = nil
+	}
+	if visited["tls-server-name"] {
+		cfg.TLSServerName = flags.tlsServerName
+	}
+	if visited["insecure-skip-verify"] {
+		cfg.InsecureSkipVerify = flags.insecureSkipVerify
+	}
+	if visited["timeout"] {
+		cfg.Timeout = flags.timeout
+	}
+	if visited["format"] {
+		cfg.Format = flags.format
+	}
+	if visited["verbose"] {
+		cfg.Verbose = flags.verbose
+	}
+	if visited["debug"] {
+		cfg.Debug = flags.debug
+	}
+	if err := config.ValidateClientConfig(cfg); err != nil {
+		return cfg, err
+	}
 	return cfg, nil
 }
 
 func resolveCommon(fs *flag.FlagSet, flags commonFlags) (config.ClientConfig, string, error) {
 	cfg, err := resolveClientConfig(fs, flags)
-	if err != nil { return cfg, "", err }
+	if err != nil {
+		return cfg, "", err
+	}
 	format, err := validateSnapshotFormat(cfg.Format)
-	if err != nil { return cfg, "", fmt.Errorf("%w: %v", config.ErrConfig, err) }
+	if err != nil {
+		return cfg, "", fmt.Errorf("%w: %v", config.ErrConfig, err)
+	}
 	return cfg, format, nil
 }
 

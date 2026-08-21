@@ -1,9 +1,17 @@
 package cli
 
-import sharedhelp "github.com/DishanRajapaksha/industrial-cli-kit/help"
+import (
+	"io"
+
+	sharedhelp "github.com/DishanRajapaksha/industrial-cli-kit/help"
+)
 
 func (a *App) writeRegistryUsage() {
-	_ = sharedhelp.Write(a.out, cliRegistry, sharedhelp.Options{
+	a.writeRegistryUsageTo(a.out)
+}
+
+func (a *App) writeRegistryUsageTo(w io.Writer) {
+	_ = sharedhelp.Write(w, cliRegistry, sharedhelp.Options{
 		Description: "ocpp-cli is an OCPP 1.6-J charge point command-line client and simulator.",
 		Usage: []string{
 			"ocpp-cli [global flags] <command> [flags]",
